@@ -1,0 +1,10 @@
+<h1>Alle Lernsätze</h1>
+<ul>
+    {% for s in sentences %}
+        <li>
+            {{ s.original_text }}
+            <a href="{{ url_for('edit_sentence_page', sentence_id=s.id) }}">Edit</a>
+        </li>
+    {% endfor %}
+</ul>
+<a href="{{ url_for('dashboard', user_id=user_id) }}">Zurück</a>

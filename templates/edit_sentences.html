@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head><title>Add Sentence</title></head>
+<body>
+    <h1>Add Sentence for User {{ user_id }}</h1>
+    <form method="POST">
+        <label>Original Text:</label>
+        <input name="original_text" required><br><br>
+
+        <h3>Translations</h3>
+        <label>English:</label>
+        <input name="translations[en]"><br>
+        <label>French:</label>
+        <input name="translations[fr]"><br>
+        <label>Spanish:</label>
+        <input name="translations[es]"><br>
+        <label>Italian:</label>
+        <input name="translations[it]"><br>
+
+        <button type="submit">Submit</button>
+    </form>
+</body>
+</html>

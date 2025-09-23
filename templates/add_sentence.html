@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head><title>Add Sentence</title></head>
+<body>
+    <h1>Add Sentence for User {{ user_id }}</h1>
+    <form method="POST">
+        <label>Original Text:</label>
+        <input name="original_text" required><br>
+        <label>Translations (comma separated):</label>
+        <input name="translations"><br>
+        <button type="submit">Submit</button>
+    </form>
+</body>
+</html>

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login / Create User</title>
+</head>
+<body>
+    <h1>Login oder User erstellen</h1>
+
+    <!-- Login -->
+    <h2>Login</h2>
+    <form method="POST" action="{{ url_for('ui.login') }}">
+        <label>Benutzername:</label>
+        <input name="username" required>
+        <button type="submit">Login</button>
+    </form>
+
+    <h3>Bestehende User:</h3>
+    <ul>
+        {% for user in users %}
+            <li>
+                <form method="POST" action="{{ url_for('ui.login') }}" style="display:inline;">
+                    <input type="hidden" name="username" value="{{ user.username }}">
+                    <button type="submit">{{ user.username }} ({{ user.native_language }})</button>
+                </form>
+            </li>
+        {% endfor %}
+    </ul>
+
+    <hr>
+
+    <!-- Create User -->
+    <h2>Neuen User erstellen</h2>
+    <form method="POST" action="{{ url_for('ui.create_user') }}">
+        <label>Benutzername:</label>
+        <input name="username" required><br>
+        <label>Native Language:</label>
+        <input name="native_language" required><br>
+        <button type="submit">Create</button>
+    </form>
+</body>
+</html>

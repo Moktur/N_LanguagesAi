@@ -1,0 +1,48 @@
+erDiagram
+    USERS ||--o{ USER_LANGUAGES : "has"
+    USERS ||--o{ SENTENCES : "creates"
+    USERS ||--o{ LEARNING_PROGRESS : "tracks"
+    SENTENCES ||--o{ TRANSLATIONS : "has"
+    TRANSLATIONS ||--o{ LEARNING_PROGRESS : "has"
+
+    USERS {
+        int id PK
+        string username
+        string native_language
+        datetime created_at
+    }
+
+    USER_LANGUAGES {
+        int id PK
+        int user_id FK
+        string language_code
+        datetime created_at
+    }
+
+    SENTENCES {
+        int id PK
+        int user_id FK
+        string original_text
+        string language_code
+        string category
+        datetime created_at
+    }
+
+    TRANSLATIONS {
+        int id PK
+        int sentence_id FK
+        string translated_text
+        string target_language
+        datetime created_at
+    }
+
+    LEARNING_PROGRESS {
+        int id PK
+        int user_id FK
+        int translation_id FK
+        decimal score
+        datetime last_reviewed
+        datetime next_review
+        int review_count
+        decimal success_rate
+    }

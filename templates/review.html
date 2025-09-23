@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+    <title>Lernsatz reviewen</title>
+</head>
+<body>
+    <h1>Lernsatz reviewen</h1>
+    {% if sentence %}
+        <p>Originalsatz: {{ sentence.original_text }}</p>
+        <form action="/evaluate_sentence" method="post">
+            <input type="hidden" name="sentence_id" value="{{ sentence.id }}">
+            {% for lang in target_languages %}
+                <label>{{ lang.language_code }}:</label>
+                <input type="text" name="user_translations[{{ lang.language_code }}]"><br>
+            {% endfor %}
+            <button type="submit">Bewerten</button>
+        </form>
+    {% else %}
+        <p>Keine Sätze zum Review verfügbar.</p>
+    {% endif %}
+</body>
+</html>
