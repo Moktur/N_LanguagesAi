@@ -1,9 +1,10 @@
 import os
 from dotenv import load_dotenv
+import json
 
 load_dotenv()  # Lädt .env Datei
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "local")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "openai")
 
 class LLMAdapter:
     def __init__(self):
@@ -26,15 +27,24 @@ class LLMAdapter:
         else:
             raise ValueError(f"Unsupported LLM provider: {LLM_PROVIDER}")
 
-    def score_answer(self, user_answer: str, correct_answer: str) -> float:
+    def score_answer(self, to_translate: str, translations: dict) -> int:
+        normalized_translations = {
+            language_code : translation
+            for translation_dict in translations["translations"]
+            for language_code, translation in translation_dict.items()
+        }
+        
+        
+
+        user_translations = json.dumps(normalized_translations)
         """
-        Gibt Score zwischen 0.0 (falsch) und 1.0 (perfekt) zurück
+        Gibt Score zwischen 0 (sehr falsch) und 100 (perfekt) zurück
         """
         prompt = f"""
         Compare these translations:
-        Correct: "{correct_answer}"
-        User: "{user_answer}"
-        Return only a number between 0 and 1.
+        to translate: "{to_translate}"
+        User Translations: "{user_translations}"
+        Return only a number between 0 and 100.
         """
 
         if self.provider == "openai":
@@ -53,7 +63,13 @@ class LLMAdapter:
             raw = "0.8"
 
         try:
-            score = float(raw)
-            return max(0.0, min(1.0, score))
+            score = int(raw)
+            return max(0, min(100, score))
         except:
             return 0.0
+
+
+# TODO Test entfernen
+ladapter = LLMAdapter()
+trans = {"translations": [{"it": "vado al lavoro"}, {"en": "fuck"}]}
+print(ladapter.score_answer("ich fahre zur Arbeit", trans))

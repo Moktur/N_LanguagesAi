@@ -729,6 +729,79 @@ def get_sentences(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+# TODO testen
+@api_bp.route("/sentences/<int:user_id>/get_learning_card")
+def get_learning_card(user_id):
+    """
+    Get learning card with lowest Anki score
+    ---
+    tags:
+      - Sentences
+    parameters:
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: User ID
+    responses:
+      200:
+        description: Success
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            sentence:
+              type: object
+              properties:
+                id:
+                  type: integer
+                original_text:
+                  type: string
+                language_code:
+                  type: string
+                category:
+                  type: string
+                anki_score:
+                  type: integer
+                created_at:
+                  type: string
+            target_languages:
+              type: array
+              items:
+                type: string
+              description: List of target language codes
+      404:
+        description: No sentences found
+      500:
+        description: Server error
+    """
+    try:
+        # Hole den Satz mit dem niedrigsten anki_score für diesen User
+        sentence = Sentences.query.filter_by(user_id=user_id)\
+                                 .order_by(Sentences.anki_score.asc())\
+                                 .first()
+        
+        if not sentence:
+            return jsonify({"error": "Keine Sätze für diesen Benutzer gefunden"}), 404
+        # get target languages
+        target_languages = User_Languages.query.filter_by(user_id=user_id).all()
+        language_codes = [lang.language_code for lang in target_language]
+        return jsonify({
+            "success": True,
+            "sentence": {
+                "id": sentence.id,
+                "original_text": sentence.original_text,
+                "language_code": sentence.language_code,
+                "category": sentence.category,
+                "anki_score": sentence.anki_score,
+                "created_at": sentence.created_at.isoformat() if sentence.created_at else None
+            },
+            "target_languages": language_codes
+        })
+        
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 @api_bp.route("/get_sentence", methods=["GET", "POST"])
 def get_sentence_page():
@@ -830,203 +903,16 @@ from src.server.api.llm_adapter import LLMAdapter
 
 llm = LLMAdapter()
 
-@api_bp.route("/evaluate_sentence", methods=["POST"])
-def evaluate_sentence():
-    """
-    Evaluate user's translations for a sentence across all target languages
-    ---
-    tags:
-      - Learning
-    summary: Evaluate a sentence
-    description: Returns scores for each translation and a combined score.
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              sentence_id:
-                type: integer
-              user_translations:
-                type: object
-                additionalProperties:
-                  type: string
-            required:
-              - sentence_id
-              - user_translations
-    responses:
-      200:
-        description: Evaluation result
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                scores:
-                  type: object
-                  additionalProperties:
-                    type: number
-                combined_score:
-                  type: number
-    """
-    data = request.get_json()
-    sentence_id = data.get("sentence_id")
-    user_translations = data.get("user_translations")
-
-    if not sentence_id or not user_translations:
-        return jsonify({"error": "Missing sentence_id or user_translations"}), 400
-
-    # Simplified evaluation with session tracking
-    # Create session to track this evaluation attempt
-    session_input = {
-        'user_translations': user_translations,
-        'evaluation_type': 'sentence_evaluation'
-    }
-    
-    # For now, use simple scoring - this can be enhanced with LLM later
-    scores = {}
-    for lang_code, user_text in user_translations.items():
-        # Simple scoring placeholder - enhance with actual translation comparison
-        scores[lang_code] = 0.8  # Placeholder score
-
-    # Kombinierten Score berechnen (z. B. Durchschnitt)
-    if scores:
-        combined_score = sum(scores.values()) / len(scores)
-    else:
-        combined_score = 0.0
-
-    # Create session record
-    current_app.manager.create_session(
-        user_id=None,  # Should get from session/auth
-        sentence_id=sentence_id,
-        input_data=session_input,
-        score=combined_score
-    )
-    
-    return jsonify({"scores": scores, "combined_score": combined_score}), 200
+# @api_bp.route("/<int>sentence_id/<int>user_id/evaluate_sentence", methods=["POST"])
+# def evaluate_sentence(sentence_id=int, user_id=int, target_languages):
+#     # TODO
+#     try:
+#         sentence = current_app.manager.get_sentence_by_id(sentence_id)
+#         user = current_app.manager.get_user_by_id(user_id)
 
 
-
-
-@api_bp.route('/learn/review/<int:sentence_id>', methods=['POST'])
-def review_sentence(sentence_id):
-    """
-    Submit a review answer for a translation
-    ---
-    tags:
-      - Learning
-    parameters:
-      - name: sentence_id
-        in: path
-        type: integer
-        required: true
-      - name: user_answer
-        in: formData
-        type: string
-        required: true
-    """
-    try:
-        user_answer = request.form.get('user_answer')
-        if not user_answer:
-            return jsonify({'error': 'user_answer is required'}), 400
-
-        # Get sentence instead of translation
-        sentence = current_app.manager.get_sentence_by_id(sentence_id)
-        if not sentence:
-            return jsonify({'error': 'Sentence not found'}), 404
-
-        # Simple scoring for now - can be enhanced with LLM
-        score = 0.8  # Placeholder score
-        is_success = score >= 0.7
-        
-        # Create session to track this review
-        session_input = {
-            'user_answer': user_answer,
-            'review_type': 'translation_review'
-        }
-        current_app.manager.create_session(
-            user_id=sentence.user_id,
-            sentence_id=sentence.id,
-            input_data=session_input,
-            score=score
-        )
-        
-        # Update sentence progress
-        updated_sentence = current_app.manager.update_sentence_progress(sentence.id, score, is_success)
-
-        return jsonify({
-            'sentence_id': sentence.id,
-            'user_answer': user_answer,
-            'score': score,
-            'next_review': updated_sentence.next_review.isoformat() if updated_sentence.next_review else None
-        }), 200
-
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-
-@api_bp.route('/learn/user/<int:user_id>/due', methods=['GET'])
-def get_due_reviews(user_id):
-    """
-    Get due progress groups for a user
-    ---
-    tags:
-      - Learning
-    summary: Get due reviews
-    description: Returns all progress groups that are due for review for a user.
-    parameters:
-      - name: user_id
-        in: path
-        type: integer
-        required: true
-        description: ID of the user
-    responses:
-      200:
-        description: List of due progress groups
-        schema:
-          type: array
-          items:
-            type: object
-            properties:
-              id:
-                type: integer
-              sentence_id:
-                type: integer
-              user_id:
-                type: integer
-              group_score:
-                type: number
-              next_review:
-                type: string
-              last_reviewed:
-                type: string
-              review_count:
-                type: integer
-              created_at:
-                type: string
-      404:
-        description: User not found
-    """
-    try:
-        due_sentences = current_app.manager.get_due_sentences(user_id)
-        sentences_list = []
-        for sentence in due_sentences:
-            sentences_list.append({
-                'id': sentence.id,
-                'user_id': sentence.user_id,
-                'original_text': sentence.original_text,
-                'category': sentence.category,
-                'score': sentence.score,
-                'next_review': sentence.next_review.isoformat() if sentence.next_review else None,
-                'last_review': sentence.last_review.isoformat() if sentence.last_review else None,
-                'review_count': sentence.review_count,
-                'created_at': sentence.created_at.isoformat() if sentence.created_at else None
-            })
-        return jsonify(sentences_list)
-        
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
+#     except Exception as e:
+#         return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/learn/stats/<int:user_id>', methods=['GET'])
@@ -1064,7 +950,6 @@ def get_learning_stats(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-llm = LLMAdapter()
 
 @api_bp.route("/evaluate", methods=["POST"])
 def evaluate_answer():
