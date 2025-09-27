@@ -903,16 +903,16 @@ from src.server.api.llm_adapter import LLMAdapter
 
 llm = LLMAdapter()
 
-# @api_bp.route("/<int>sentence_id/<int>user_id/evaluate_sentence", methods=["POST"])
-# def evaluate_sentence(sentence_id=int, user_id=int, target_languages):
-#     # TODO
-#     try:
-#         sentence = current_app.manager.get_sentence_by_id(sentence_id)
-#         user = current_app.manager.get_user_by_id(user_id)
+@api_bp.route("/<int>sentence_id/<int>user_id/evaluate_sentence", methods=["POST"])
+def evaluate_sentence(sentence_id=int, user_id=int, translation_dict):
+    # TODO { translations: [{ language_code: XX, tranlsation: YY}, {language_code:ZZ, tranlsation: VV}]}
+    try:
+        sentence = current_app.manager.get_sentence_by_id(sentence_id)
+        user = current_app.manager.get_user_by_id(user_id)
+        
 
-
-#     except Exception as e:
-#         return jsonify({'error': str(e)}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 @api_bp.route('/learn/stats/<int:user_id>', methods=['GET'])

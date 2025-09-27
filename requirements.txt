@@ -2,3 +2,7 @@ openai>=1.0.0
 python-dotenv
 #llama-cpp-python>=0.2.0
 pydantic>=1.10.0
+Flask
+flask-sqlalchemy
+flask-restful
+flasgger
