@@ -905,7 +905,7 @@ llm = LLMAdapter()
 
 @api_bp.route("/<int:sentence_id>/<int:user_id>/evaluate_sentence", methods=["POST"])
 def evaluate_sentence(sentence_id, user_id):
-  """
+    """
     Evaluate a user's translation for a given sentence
     ---
     tags:
@@ -915,12 +915,10 @@ def evaluate_sentence(sentence_id, user_id):
         in: path
         type: integer
         required: true
-        description: The ID of the sentence to evaluate
       - name: user_id
         in: path
         type: integer
         required: true
-        description: The ID of the user whose translation is being evaluated
     requestBody:
       required: true
       content:
@@ -930,7 +928,6 @@ def evaluate_sentence(sentence_id, user_id):
             properties:
               translations:
                 type: array
-                description: List of translations provided by the user
                 items:
                   type: object
                   additionalProperties:
@@ -941,47 +938,39 @@ def evaluate_sentence(sentence_id, user_id):
                 - en: "I am going to work"
     responses:
       200:
-        description: Evaluation score successfully calculated
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                sentence_id:
-                  type: integer
-                  example: 12
-                user_id:
-                  type: integer
-                  example: 5
-                sentence:
-                  type: string
-                  example: "ich fahre zur Arbeit"
-                score:
-                  type: integer
-                  description: Score between 0 and 100
-                  example: 78
-      400:
-        description: Bad request, missing translations
-      500:
-        description: Server error
+        description: Evaluation score successfully calculated and saved
     """
     try:
         data = request.get_json()
         if not data or "translations" not in data:
             return jsonify({"error": "Missing 'translations' in request body"}), 400
 
-        # Hole sentence & user über dein Manager-Objekt
+        # Hole Sentence & User
         sentence = current_app.manager.get_sentence_by_id(sentence_id)
-        user = current_app.manager.get_user_by_id(user_id)
+        if not sentence:
+            return jsonify({"error": "Sentence not found"}), 404
 
-        # Wert aus Adapter berechnen
-        score = llm.score_answer(sentence.text, data)
+        user = current_app.manager.get_user_by_id(user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+
+        # Bewertung berechnen -> gibt dict mit results + overall_score zurück
+        evaluation = current_app.manager.llm.score_answer(
+            sentence.original_text,
+            data,
+            user.native_language   # Native language mitgeben
+        )
+
+        # Gesamtscore in DB speichern
+        sentence.score = evaluation.get("overall_score", 0)
+        current_app.manager._commit()
 
         return jsonify({
             "sentence_id": sentence_id,
             "user_id": user_id,
-            "sentence": sentence.text,
-            "score": score
+            "sentence": sentence.original_text,
+            "overall_score": evaluation.get("overall_score", 0),
+            "evaluations": evaluation.get("results", [])
         })
 
     except Exception as e:

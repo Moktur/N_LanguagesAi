@@ -35,22 +35,43 @@ class LLMAdapter:
         else:
             raise ValueError(f"Unsupported LLM provider: {LLM_PROVIDER}")
 
-    def score_answer(self, to_translate: str, translations: dict, native_language: str = "en") -> dict:
+    def score_answer(
+    self, 
+    to_translate: str, 
+    translations: dict, 
+    native_language: str = None
+        ) -> dict:
         """
-        Bewertet Übersetzungen in mehreren Sprachen.
-        Gibt ein Dict zurück:
-        {
-            "results": [
-                {
-                    "language": "en",
-                    "score": 75,
-                    "corrected": "...",
-                    "explanation": "..."
+        Bewertet Übersetzungen und gibt structured output zurück.
+
+        Parameters
+        ----------
+        to_translate : str
+            Der Originalsatz.
+        translations : dict
+            User-Übersetzungen im Format:
+            {"translations": [{"en": "..."}, {"it": "..."}]}
+        native_language : str, optional
+            Muttersprache des Users.
+
+        Returns
+        -------
+        dict
+            {
+            "overall_score": int,
+            "evaluations": {
+                "en": {
+                    "score": int,
+                    "correct_translation": str,
+                    "explanation": str
                 },
-                ...
-            ],
-            "overall_score": 85
-        }
+                "it": {
+                    "score": int,
+                    "correct_translation": str,
+                    "explanation": str
+                }
+            }
+            }
         """
         normalized_translations = {
             language_code: translation
@@ -62,65 +83,50 @@ class LLMAdapter:
 
         prompt = f"""
         You are a strict but fair language teacher evaluating translations.
-        The source sentence is: "{to_translate}"
 
-        The user provided translations (JSON dict):
+        Source sentence: "{to_translate}"
+        User's native language: "{native_language}"
+
+        User provided translations (JSON format):
         {user_translations}
 
-        For each language:
-        - Give a score between 0 (very wrong) and 100 (perfect).
-        - Suggest the corrected ideal translation in that language.
-        - Provide a short explanation (max 2 sentences) written in the user's native language: {native_language}.
+        For each translation:
+        - Give a score between 0 and 100
+        - Provide the correct (ideal) translation
+        - Give a short explanation why you scored it this way
 
-        Return JSON strictly in this format:
+        Scoring rules:
+        - 100 points: Perfect translation, correct grammar, meaning, and nuance.
+        - 80-99 points: Small mistakes, but overall correct and understandable.
+        - 60-79 points: Some errors, but the main meaning is preserved.
+        - 40-59 points: Significant errors, but partially correct.
+        - 20-39 points: Mostly incorrect, meaning hard to understand.
+        - 0-19 points: Completely wrong, nonsense, or unrelated.
+
+        Return your response strictly as valid JSON in the following format
+        and in the users native language:
+
         {{
-          "results": [
-            {{
-              "language": "<lang_code>",
-              "score": <int>,
-              "corrected": "<corrected sentence>",
-              "explanation": "<short explanation in {native_language}>"
+        "overall_score": <int>,
+        "evaluations": {{
+            "<language_code>": {{
+            "score": <int>,
+            "correct_translation": "<string>",
+            "explanation": "<string>"
             }},
             ...
-          ],
-          "overall_score": <int>
+        }}
         }}
         """
 
         raw = None
-
         if self.provider == "openai":
             response = self.client.chat.completions.create(
                 model="gpt-4o-mini",
                 messages=[{"role": "user", "content": prompt}],
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "translation_evaluation",
-                        "schema": {
-                            "type": "object",
-                            "properties": {
-                                "results": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "language": {"type": "string"},
-                                            "score": {"type": "integer"},
-                                            "corrected": {"type": "string"},
-                                            "explanation": {"type": "string"}
-                                        },
-                                        "required": ["language", "score", "corrected", "explanation"]
-                                    }
-                                },
-                                "overall_score": {"type": "integer"}
-                            },
-                            "required": ["results", "overall_score"]
-                        }
-                    }
-                }
+                response_format={"type": "json_object"}  # Structured output erzwingen
             )
-            raw = response.choices[0].message.content
+            raw = response.choices[0].message.content.strip()
 
         elif self.provider == "gemini":
             response = self.client.models.generate_content(
@@ -128,62 +134,49 @@ class LLMAdapter:
                 contents=prompt,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
-                    response_schema={
-                        "type": "object",
-                        "properties": {
-                            "results": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "language": {"type": "string"},
-                                        "score": {"type": "integer"},
-                                        "corrected": {"type": "string"},
-                                        "explanation": {"type": "string"}
-                                    },
-                                    "required": ["language", "score", "corrected", "explanation"]
-                                }
-                            },
-                            "overall_score": {"type": "integer"}
-                        },
-                        "required": ["results", "overall_score"]
-                    }
-                )
+                    thinking_config=types.ThinkingConfig(thinking_budget=0)
+                ),
             )
             if response.candidates and response.candidates[0].content.parts:
-                raw = response.candidates[0].content.parts[0].text
+                raw = response.candidates[0].content.parts[0].text.strip()
 
         elif self.provider == "local":
             output = self.client(prompt, max_tokens=500)
-            raw = output["choices"][0]["text"]
+            raw = output["choices"][0]["text"].strip()
 
         elif self.provider == "mock":
-            return {
-                "results": [
-                    {
-                        "language": "en",
-                        "score": 50,
-                        "corrected": "I'm going to work",
-                        "explanation": f"(Mock) Explanation in {native_language}"
+            raw = json.dumps({
+                "overall_score": 75,
+                "evaluations": {
+                    "en": {
+                        "score": 80,
+                        "correct_translation": "I am going to work",
+                        "explanation": "Minor grammar mistake, but understandable"
+                    },
+                    "it": {
+                        "score": 70,
+                        "correct_translation": "Vado al lavoro",
+                        "explanation": "Article usage is slightly off, but meaning preserved"
                     }
-                ],
-                "overall_score": 50
-            }
+                }
+            })
 
-        # Parsing JSON
         try:
-            return json.loads(raw)
-        except Exception:
-            return {
-                "results": [],
-                "overall_score": 0,
-                "error": f"Could not parse model output: {raw}"
-            }
+            result = json.loads(raw)
+            # Sicherheit: Clampen der Scores
+            result["overall_score"] = max(0, min(100, int(result.get("overall_score", 0))))
+            for lang, eval_data in result.get("evaluations", {}).items():
+                eval_data["score"] = max(0, min(100, int(eval_data.get("score", 0))))
+            return result
+        except Exception as e:
+            print(f"Parsing error: {e}, raw={raw}")
+            return {"overall_score": 0, "evaluations": {}}
+
 
 
 # --- Test ---
 if __name__ == "__main__":
     ladapter = LLMAdapter()
-    trans = {"translations": [{"it": "vado al lavoro"}, {"en": "I go to work"}]}
-    result = ladapter.score_answer("ich fahre zur Arbeit", trans, native_language="de")
+    trans = {"translations": [{"de": "ich fahre zur Arbeit"}, {"en": "I go to work"}]}
+    result = ladapter.score_answer("vado al lavoro", trans, native_language="it")
     print(json.dumps(result, indent=2, ensure_ascii=False))
