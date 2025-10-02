@@ -903,16 +903,89 @@ from src.server.api.llm_adapter import LLMAdapter
 
 llm = LLMAdapter()
 
-@api_bp.route("/<int>sentence_id/<int>user_id/evaluate_sentence", methods=["POST"])
-def evaluate_sentence(sentence_id=int, user_id=int, translation_dict):
-    # TODO { translations: [{ language_code: XX, tranlsation: YY}, {language_code:ZZ, tranlsation: VV}]}
+@api_bp.route("/<int:sentence_id>/<int:user_id>/evaluate_sentence", methods=["POST"])
+def evaluate_sentence(sentence_id, user_id):
+  """
+    Evaluate a user's translation for a given sentence
+    ---
+    tags:
+      - Evaluation
+    parameters:
+      - name: sentence_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the sentence to evaluate
+      - name: user_id
+        in: path
+        type: integer
+        required: true
+        description: The ID of the user whose translation is being evaluated
+    requestBody:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              translations:
+                type: array
+                description: List of translations provided by the user
+                items:
+                  type: object
+                  additionalProperties:
+                    type: string
+            example:
+              translations:
+                - it: "Vado al lavoro"
+                - en: "I am going to work"
+    responses:
+      200:
+        description: Evaluation score successfully calculated
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sentence_id:
+                  type: integer
+                  example: 12
+                user_id:
+                  type: integer
+                  example: 5
+                sentence:
+                  type: string
+                  example: "ich fahre zur Arbeit"
+                score:
+                  type: integer
+                  description: Score between 0 and 100
+                  example: 78
+      400:
+        description: Bad request, missing translations
+      500:
+        description: Server error
+    """
     try:
+        data = request.get_json()
+        if not data or "translations" not in data:
+            return jsonify({"error": "Missing 'translations' in request body"}), 400
+
+        # Hole sentence & user über dein Manager-Objekt
         sentence = current_app.manager.get_sentence_by_id(sentence_id)
         user = current_app.manager.get_user_by_id(user_id)
-        
+
+        # Wert aus Adapter berechnen
+        score = llm.score_answer(sentence.text, data)
+
+        return jsonify({
+            "sentence_id": sentence_id,
+            "user_id": user_id,
+            "sentence": sentence.text,
+            "score": score
+        })
 
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        return jsonify({"error": str(e)}), 500
 
 
 @api_bp.route('/learn/stats/<int:user_id>', methods=['GET'])
