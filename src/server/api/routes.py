@@ -89,142 +89,6 @@ def index():
 
 # ==================== USER MANAGEMENT ENDPOINTS ====================
 
-@api_bp.route('/users/create', methods=['POST'])
-def create_user():
-    """
-    Create a new user
-    ---
-    tags:
-      - Users
-    summary: Create a new user
-    description: Creates a new user with username and native language
-    parameters:
-      - name: body
-        in: body
-        required: true
-        schema:
-          type: object
-          properties:
-            username:
-              type: string
-              minLength: 3
-              maxLength: 50
-              example: "john_doe"
-              description: "Unique username for the user"
-            native_language:
-              type: string
-              minLength: 2
-              maxLength: 5
-              example: "de"
-              description: "User's native language code (e.g., 'en', 'de', 'fr')"
-          required:
-            - username
-            - native_language
-          example:
-            username: "john_doe"
-            native_language: "de"
-    responses:
-      201:
-        description: User created successfully
-        schema:
-          type: object
-          properties:
-            success:
-              type: boolean
-              example: true
-              description: "Indicates if the operation was successful"
-            message:
-              type: string
-              example: "User created successfully"
-              description: "Success message"
-            user:
-              type: object
-              properties:
-                id:
-                  type: integer
-                  example: 1
-                  description: "Unique user ID"
-                username:
-                  type: string
-                  example: "john_doe"
-                  description: "User's username"
-                native_language:
-                  type: string
-                  example: "de"
-                  description: "User's native language code"
-                created_at:
-                  type: string
-                  format: date-time
-                  example: "2024-01-01T10:00:00"
-                  description: "Timestamp when user was created"
-          example:
-            success: true
-            message: "User created successfully"
-            user:
-              id: 1
-              username: "john_doe"
-              native_language: "de"
-              created_at: "2024-01-01T10:00:00"
-      400:
-        description: Invalid input data or username already exists
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-              example: "Username already exists"
-            details:
-              type: array
-              items:
-                type: object
-              example: []
-      500:
-        description: Server error
-        schema:
-          type: object
-          properties:
-            error:
-              type: string
-              example: "Server error"
-            details:
-              type: string
-              example: "Internal server error details"
-    """
-    try:
-        # Get JSON data from request
-        data = request.get_json()
-        if not data:
-            return jsonify({'error': 'No JSON data provided'}), 400
-        
-        # Validate input using Pydantic
-        try:
-            user_request = UserCreateRequest(**data)
-        except ValidationError as e:
-            return jsonify({'error': 'Validation failed', 'details': e.errors()}), 400
-        
-        # Create user
-        try:
-            user = current_app.manager.create_user(
-                username=user_request.username,
-                native_language=user_request.native_language
-            )
-        except ValueError as e:
-            # This handles the "Username already exists" error from DataManager
-            return jsonify({'error': str(e)}), 400
-        
-        # Create response using Pydantic model
-        user_response = UserResponse.model_validate(user)
-        response = UserCreateResponse(
-            success=True,
-            message="User created successfully",
-            user=user_response
-        )
-        
-        return jsonify(response.model_dump()), 201
-        
-    except Exception as e:
-        return jsonify({'error': 'Server error', 'details': str(e)}), 500
-
 
 @api_bp.route('/users/<int:user_id>', methods=['GET'])
 def get_user(user_id):
@@ -822,7 +686,7 @@ def update_sentence():
         return jsonify({'error': str(e)}), 500
 
 
-# TODO testen
+
 @api_bp.route("/sentences/<int:user_id>/learning_card", methods=["GET"])
 def get_learning_card(user_id):
     """
@@ -970,78 +834,166 @@ from src.server.api.llm_adapter import LLMAdapter
 
 llm = LLMAdapter()
 
-@api_bp.route("/<int:sentence_id>/<int:user_id>/evaluate_sentence", methods=["POST"])
-def evaluate_sentence(sentence_id, user_id):
+@api_bp.route('/evaluate_sentence', methods=['POST'])
+def evaluate_sentence():
     """
-    Evaluate a user's translation for a given sentence
+    Evaluate user translations for a given sentence
     ---
     tags:
-      - Evaluation
+      - Sentences
+    summary: Evaluate translations and calculate language learning score
+    description: >
+      Evaluates the user's translations for a given sentence against the original text.  
+      The number of translations provided **must match** the user's target languages in the database.  
+      The results are used to update the user's learning progress in the `sentences` table (Anki-style scheduling).  
+      No data is stored in the `sessions` table at this stage.
+
     parameters:
-      - name: sentence_id
-        in: path
-        type: integer
+      - name: body
+        in: body
         required: true
-      - name: user_id
-        in: path
-        type: integer
-        required: true
-    requestBody:
-      required: true
-      content:
-        application/json:
-          schema:
-            type: object
-            properties:
-              translations:
-                type: array
-                items:
-                  type: object
-                  additionalProperties:
-                    type: string
-            example:
-              translations:
-                - it: "Vado al lavoro"
-                - en: "I am going to work"
+        schema:
+          type: object
+          properties:
+            sentence_id:
+              type: integer
+              example: 12
+              description: "ID of the sentence to evaluate"
+            user_id:
+              type: integer
+              example: 5
+              description: "ID of the user performing the translation"
+            native_language:
+              type: string
+              minLength: 2
+              maxLength: 5
+              example: "de"
+              description: "User's native language (used as source text language)"
+            translations:
+              type: object
+              description: >
+                Dictionary containing translations for all target languages.  
+                The number of entries **must exactly match** the user's registered target languages.  
+                Each key is a target language code (e.g., 'fr', 'nl', 'pl'), and each value is the user's translation.
+              additionalProperties:
+                type: string
+              example:
+                fr: "Ceci est un exemple."
+                nl: "Dit is een voorbeeld."
+                pl: "To jest przykład."
+          required:
+            - sentence_id
+            - user_id
+            - native_language
+            - translations
+          example:
+            sentence_id: 12
+            user_id: 5
+            native_language: "de"
+            translations:
+              fr: "Ceci est un exemple."
+              nl: "Dit is een voorbeeld."
+              pl: "To jest przykład."
+
     responses:
       200:
-        description: Evaluation score successfully calculated and saved
+        description: Evaluation completed successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            overall_score:
+              type: integer
+              example: 87
+              description: "Average score across all translations (0–100)"
+            language_scores:
+              type: object
+              example:
+                fr: 90
+                nl: 80
+                pl: 90
+            explanations:
+              type: object
+              example:
+                fr: "Good sentence structure, minor grammar error."
+                nl: "Word choice slightly off, otherwise correct."
+                pl: "Perfect translation."
+            message:
+              type: string
+              example: "Evaluation completed and score updated."
+      400:
+        description: Missing or invalid input data
+      404:
+        description: Sentence or user not found
+      500:
+        description: Internal server error
     """
     try:
         data = request.get_json()
-        if not data or "translations" not in data:
-            return jsonify({"error": "Missing 'translations' in request body"}), 400
+        if not data:
+            return jsonify({'error': 'Missing JSON data'}), 400
 
-        # Hole Sentence & User
-        sentence = current_app.manager.get_sentence_by_id(sentence_id)
-        if not sentence:
-            return jsonify({"error": "Sentence not found"}), 404
+        sentence_id = data.get('sentence_id')
+        user_id = data.get('user_id')
+        native_language = data.get('native_language')
+        translations = data.get('translations')
+
+        if not all([sentence_id, user_id, native_language, translations]):
+            return jsonify({'error': 'Missing required fields'}), 400
 
         user = current_app.manager.get_user_by_id(user_id)
-        if not user:
-            return jsonify({"error": "User not found"}), 404
+        sentence = current_app.manager.get_sentence_by_id(sentence_id)
 
-        # Bewertung berechnen -> gibt dict mit results + overall_score zurück
-        evaluation = current_app.manager.llm.score_answer(
-            sentence.original_text,
-            data,
-            user.native_language   # Native language mitgeben
+        if not user or not sentence:
+            return jsonify({'error': 'User or sentence not found'}), 404
+
+        # Evaluate translations via LLM adapter
+        result = current_app.manager.llm.score_answer(
+            to_translate=sentence.original_text,
+            translations=translations,
+            native_language=native_language
         )
 
-        # Gesamtscore in DB speichern
-        sentence.score = evaluation.get("overall_score", 0)
-        current_app.manager._commit()
+        # Convert all scores to integers between 0–100
+        overall_score = int(round(result.get("overall_score", 0)))
+        language_scores = {
+            lang: int(round(score_data.get("score", 0)))
+            for lang, score_data in result.get("evaluations", {}).items()
+        }
+        explanations = {
+            lang: score_data.get("explanation", "")
+            for lang, score_data in result.get("evaluations", {}).items()
+        }
 
-        return jsonify({
-            "sentence_id": sentence_id,
-            "user_id": user_id,
-            "sentence": sentence.original_text,
-            "overall_score": evaluation.get("overall_score", 0),
-            "evaluations": evaluation.get("results", [])
-        })
+        # Update progress in Sentences table
+        updated_sentence = current_app.manager.update_sentence_progress(
+            sentence_id=sentence_id,
+            new_score=overall_score,
+            is_success=overall_score >= 70
+        )
+
+        response = {
+            'success': True,
+            'message': 'Evaluation completed and score updated.',
+            'overall_score': overall_score,
+            'language_scores': language_scores,
+            'explanations': explanations,
+            'sentence': {
+                'id': updated_sentence.id,
+                'score': updated_sentence.score,
+                'review_count': updated_sentence.review_count,
+                'next_review': updated_sentence.next_review.isoformat()
+            }
+        }
+
+        return jsonify(response), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({'error': 'Server error', 'details': str(e)}), 500
+
+
 
 
 @api_bp.route('/learn/stats/<int:user_id>', methods=['GET'])
