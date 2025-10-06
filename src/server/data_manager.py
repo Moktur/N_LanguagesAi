@@ -6,6 +6,7 @@ from src.server.models.data_models import (
     User, User_Languages, Sentences, Sessions
 )
 from src.server.api.llm_adapter import LLMAdapter
+import random
 
 
 class DataManager:
@@ -130,7 +131,33 @@ class DataManager:
         self._commit()
         return True
             
+    def get_lowest_score_sentence(self, user_id):
+        """
+        Gibt den Satz mit dem niedrigsten Score für den Benutzer zurück.
+        Falls mehrere denselben Score haben, wird zufällig einer gewählt.
+        """
+        from random import choice
 
+        sentences = Sentences.query.filter_by(user_id=user_id).order_by(Sentences.score.asc()).all()
+        if not sentences:
+            return None
+
+        lowest_score = sentences[0].score
+        lowest_sentences = [s for s in sentences if s.score == lowest_score]
+        return choice(lowest_sentences)
+
+    def delete_target_language(self, user_id, language_code):
+        target_language = User_Languages.query.filter_by(
+            user_id=user_id,
+            language_code=language_code
+            ).first()
+        if target_language:
+            self.db.session.delete(target_language)
+            self._commit()
+            return True
+        return False
+
+    
     # Sessions Management
     def create_session(self, user_id, sentence_id, input_data=None, score=None):
         session = Sessions(

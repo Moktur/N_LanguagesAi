@@ -374,7 +374,7 @@ def get_user_languages(user_id):
 
 
 @api_bp.route('/users/<int:user_id>/languages/<string:language_code>', methods=['DELETE'])
-def delete_user_language(user_id, language_code):
+def delete_target_language(user_id, language_code):
     """
     Remove a target language from a user
     ---
@@ -405,9 +405,13 @@ def delete_user_language(user_id, language_code):
       404:
         description: User or language not found
     """
-    # This would require implementing a delete method in DataManager
-    return jsonify({'error': 'Not implemented yet'}), 501
 
+    success = current_app.manager.delete_target_language(user_id, language_code)
+    if success:
+        return jsonify({'success': True}), 200
+    else:
+        return jsonify({'error': 'User not found'}), 404
+    
 
 @api_bp.route('/users/<int:user_id>', methods=['DELETE'])
 def delete_user(user_id):
@@ -729,11 +733,100 @@ def get_sentences(user_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+@api_bp.route('/update_sentence', methods=['PUT'])
+def update_sentence():
+    """
+    Update an existing sentence's text
+    ---
+    tags:
+      - Sentences
+    summary: Update a sentence
+    description: >
+      Updates the text of an existing sentence by providing its `sentence_id` and a new text value.  
+      This can be used if a user wants to correct spelling mistakes or rephrase a sentence.
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        description: JSON object containing the sentence ID and the new text.
+        required: true
+        schema:
+          type: object
+          properties:
+            sentence_id:
+              type: integer
+              example: 42
+            new_text:
+              type: string
+              example: "This is the corrected version of the sentence."
+    responses:
+      200:
+        description: Sentence updated successfully
+        schema:
+          type: object
+          properties:
+            message:
+              type: string
+              example: Sentence updated successfully
+            sentence:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 42
+                original_text:
+                  type: string
+                  example: "This is the corrected version of the sentence."
+                category:
+                  type: string
+                  example: "grammar"
+                updated_at:
+                  type: string
+                  format: date-time
+                  example: "2025-10-06T11:30:00Z"
+      400:
+        description: Missing or invalid JSON data
+      404:
+        description: Sentence not found
+      500:
+        description: Internal server error
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Missing JSON data'}), 400
+
+        sentence_id = data.get('sentence_id')
+        new_text = data.get('new_text')
+
+        if not sentence_id or not new_text:
+            return jsonify({'error': 'sentence_id and new_text are required'}), 400
+
+        updated_sentence = current_app.manager.update_sentence_text(sentence_id, new_text)
+        if not updated_sentence:
+            return jsonify({'error': 'Sentence not found'}), 404
+
+        return jsonify({
+            'message': 'Sentence updated successfully',
+            'sentence': {
+                'id': updated_sentence.id,
+                'original_text': updated_sentence.original_text,
+                'category': updated_sentence.category,
+                'updated_at': datetime.utcnow().isoformat()
+            }
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # TODO testen
-@api_bp.route("/sentences/<int:user_id>/get_learning_card")
+@api_bp.route("/sentences/<int:user_id>/learning_card", methods=["GET"])
 def get_learning_card(user_id):
     """
-    Get learning card with lowest Anki score
+    Gibt die nächste Lernkarte (Sentence) mit dem niedrigsten Score zurück.
     ---
     tags:
       - Sentences
@@ -742,51 +835,22 @@ def get_learning_card(user_id):
         in: path
         type: integer
         required: true
-        description: User ID
+        description: Die Benutzer-ID
     responses:
       200:
-        description: Success
-        schema:
-          type: object
-          properties:
-            success:
-              type: boolean
-            sentence:
-              type: object
-              properties:
-                id:
-                  type: integer
-                original_text:
-                  type: string
-                language_code:
-                  type: string
-                category:
-                  type: string
-                anki_score:
-                  type: integer
-                created_at:
-                  type: string
-            target_languages:
-              type: array
-              items:
-                type: string
-              description: List of target language codes
+        description: Erfolgreich
       404:
-        description: No sentences found
+        description: Keine Sätze gefunden
       500:
-        description: Server error
+        description: Serverfehler
     """
     try:
-        # Hole den Satz mit dem niedrigsten anki_score für diesen User
-        sentence = Sentences.query.filter_by(user_id=user_id)\
-                                 .order_by(Sentences.anki_score.asc())\
-                                 .first()
-        
+        manager = current_app.manager  # das ist dein globales DataManager-Objekt
+        sentence = manager.get_lowest_score_sentence(user_id)
+
         if not sentence:
-            return jsonify({"error": "Keine Sätze für diesen Benutzer gefunden"}), 404
-        # get target languages
-        target_languages = User_Languages.query.filter_by(user_id=user_id).all()
-        language_codes = [lang.language_code for lang in target_language]
+            return jsonify({"success": False, "error": "Keine Sätze für diesen Benutzer gefunden"}), 404
+
         return jsonify({
             "success": True,
             "sentence": {
@@ -794,14 +858,17 @@ def get_learning_card(user_id):
                 "original_text": sentence.original_text,
                 "language_code": sentence.language_code,
                 "category": sentence.category,
-                "anki_score": sentence.anki_score,
+                "score": sentence.score,
+                "review_count": sentence.review_count,
+                "last_review": sentence.last_review.isoformat() if sentence.last_review else None,
+                "next_review": sentence.next_review.isoformat() if sentence.next_review else None,
                 "created_at": sentence.created_at.isoformat() if sentence.created_at else None
-            },
-            "target_languages": language_codes
-        })
-        
+            }
+        }), 200
+
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"success": False, "error": str(e)}), 500
+
 
 @api_bp.route("/get_sentence", methods=["GET", "POST"])
 def get_sentence_page():
