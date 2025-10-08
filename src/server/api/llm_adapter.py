@@ -102,7 +102,7 @@ class LLMAdapter:
         - 40-59 points: Significant errors, but partially correct.
         - 20-39 points: Mostly incorrect, meaning hard to understand.
         - 0-19 points: Completely wrong, nonsense, or unrelated.
-
+        Add the scores together and divide through the numbers of translations. This will be the overall score.
         Return your response strictly as valid JSON in the following format
         and in the users native language:
 
@@ -171,12 +171,3 @@ class LLMAdapter:
         except Exception as e:
             print(f"Parsing error: {e}, raw={raw}")
             return {"overall_score": 0, "evaluations": {}}
-
-
-
-# --- Test ---
-if __name__ == "__main__":
-    ladapter = LLMAdapter()
-    trans = {"translations": [{"de": "ich fahre zur Arbeit"}, {"en": "I go to work"}]}
-    result = ladapter.score_answer("vado al lavoro", trans, native_language="it")
-    print(json.dumps(result, indent=2, ensure_ascii=False))
