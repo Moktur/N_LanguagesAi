@@ -66,8 +66,6 @@ class DataManager:
         sentence = self.create_sentence(user_id, original_text, category)
         return sentence
 
-
-
     def get_user_categories(self, user_id):
         # returns all identified categories of a user
         categories = Sentences.query.filter_by(user_id=user_id).with_entities(Sentences.category).distinct().all()
@@ -133,8 +131,8 @@ class DataManager:
             
     def get_lowest_score_sentence(self, user_id):
         """
-        Gibt den Satz mit dem niedrigsten Score für den Benutzer zurück.
-        Falls mehrere denselben Score haben, wird zufällig einer gewählt.
+        Return the sentence with the lowest score for the user.
+        If multiple have the same score, one is chosen randomly.
         """
         from random import choice
 
@@ -156,7 +154,6 @@ class DataManager:
             self._commit()
             return True
         return False
-
     
     # Sessions Management
     def create_session(self, user_id, sentence_id, input_data=None, score=None):
