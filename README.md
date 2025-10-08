@@ -128,6 +128,7 @@ Built with **Flask**, **SQLAlchemy**, and **OpenAI-compatible LLM adapters**, th
 ```
 
 ## 🔍 Structure
+```text
 app.py
 │
 └── src/server/
@@ -148,7 +149,7 @@ app.py
     └── ...
 .env                          → Environment variables
 README.md                     → Project documentation
-
+```
 
 ## 🧠 Technical Highlights
 ```text
