@@ -17,32 +17,111 @@ api_bp = Blueprint('api', __name__)
 
 
 # ------------------- LOGIN / CREATE USER -------------------
-@api_bp.route("/", methods=["GET", "POST"])
-def create_or_login_user():
-    if request.method == "POST":
-        username = request.form.get("username")
-        native_language = request.form.get("native_language")
-        target_languages = request.form.get("target_languages").split(",")  # z.B. "en,it,fr"
+@api_bp.route('/users/create', methods=['POST'])
+def create_user():
+    """
+    Create a new user
+    ---
+    tags:
+      - Users
+    summary: Create a new user
+    description: >
+      Creates a new user with a unique username and a native language.
+      The `username` must be unique.  
+      The native language is used as the base language for learning translations.
 
-        # User erstellen oder abrufen
-        user = current_app.manager.get_user_by_username(username)
-        if not user:
-            user = current_app.manager.create_user(username, native_language)
-            for lang_code in target_languages:
-                current_app.manager.add_target_language(user.id, lang_code.strip())
+    parameters:
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            username:
+              type: string
+              example: "john_doe"
+              description: "Unique username for the user"
+            native_language:
+              type: string
+              example: "de"
+              description: "User's native language (e.g., 'en', 'de', 'it')"
+          required:
+            - username
+            - native_language
+    responses:
+      201:
+        description: User created successfully
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+              example: true
+            message:
+              type: string
+              example: "User created successfully"
+            user:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 1
+                username:
+                  type: string
+                  example: "john_doe"
+                native_language:
+                  type: string
+                  example: "de"
+                created_at:
+                  type: string
+                  example: "2025-10-07T12:00:00"
+      400:
+        description: Invalid or duplicate username
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "Username already exists"
+      500:
+        description: Server error
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "Internal server error"
+    """
+    try:
+        data = request.get_json()
+        if not data:
+            return jsonify({'error': 'Missing JSON data'}), 400
 
-        # Session speichern
-        session["user_id"] = user.id
-        return redirect(url_for("ui.index"))
+        username = data.get('username')
+        native_language = data.get('native_language')
 
-    user = None
-    if "user_id" in session:
-        user = current_app.manager.get_user_by_id(session["user_id"])
-        # User Target Languages
-        langs = current_app.manager.get_user_languages(user.id)
-        user.target_languages = [l.language_code for l in langs]
+        if not username or not native_language:
+            return jsonify({'error': 'username and native_language are required'}), 400
 
-    return render_template("index.html", user=user)
+        user = current_app.manager.create_user(username, native_language)
+
+        return jsonify({
+            'success': True,
+            'message': 'User created successfully',
+            'user': {
+                'id': user.id,
+                'username': user.username,
+                'native_language': user.native_language,
+                'created_at': user.created_at.isoformat() if user.created_at else None
+            }
+        }), 201
+
+    except ValueError as e:
+        # e.g. "Username already exists"
+        return jsonify({'error': str(e)}), 400
+
+    except Exception as e:
+        return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
 
 
 @api_bp.route('/get_all_users')
@@ -709,7 +788,7 @@ def get_learning_card(user_id):
         description: Serverfehler
     """
     try:
-        manager = current_app.manager  # das ist dein globales DataManager-Objekt
+        manager = current_app.manager 
         sentence = manager.get_lowest_score_sentence(user_id)
 
         if not sentence:
@@ -732,37 +811,6 @@ def get_learning_card(user_id):
 
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
-
-
-@api_bp.route("/get_sentence", methods=["GET", "POST"])
-def get_sentence_page():
-    if "user_id" not in session:
-        return redirect(url_for("ui.create_or_login_user"))
-
-    user_id = session["user_id"]
-    due_sentences = current_app.manager.get_due_sentences(user_id)
-    sentence = due_sentences[0] if due_sentences else None
-
-    if request.method == "POST" and sentence:
-        user_answers = {}
-        # Get user answers from form - you'll need to adapt this based on your form structure
-        user_answer = request.form.get("user_answer")
-        
-        # Create session to track this attempt
-        session_input = {
-            'user_answer': user_answer,
-            'review_type': 'sentence_practice'
-        }
-        
-        # Simple scoring for now
-        score = 0.8  # Placeholder
-        is_success = score >= 0.7
-        
-        current_app.manager.create_session(user_id, sentence.id, session_input, score)
-        current_app.manager.update_sentence_progress(sentence.id, score, is_success)
-        return redirect(url_for("ui.index"))
-
-    return render_template("get_sentence.html", sentence=sentence)
 
 
 @api_bp.route('/sentences/<int:sentence_id>', methods=['DELETE'])
@@ -845,8 +893,9 @@ def evaluate_sentence():
     description: >
       Evaluates the user's translations for a given sentence against the original text.  
       The number of translations provided **must match** the user's target languages in the database.  
-      The results are used to update the user's learning progress in the `sentences` table (Anki-style scheduling).  
-      No data is stored in the `sessions` table at this stage.
+      Each translation is scored individually by an LLM, and an overall score is calculated.  
+      Results are stored in the `sentences` table for spaced repetition tracking.  
+      No session data is written at this stage.
 
     parameters:
       - name: body
@@ -857,43 +906,50 @@ def evaluate_sentence():
           properties:
             sentence_id:
               type: integer
-              example: 12
-              description: "ID of the sentence to evaluate"
+              example: 3
+              description: "ID of the sentence being evaluated"
             user_id:
               type: integer
-              example: 5
-              description: "ID of the user performing the translation"
+              example: 2
+              description: "ID of the user submitting the translations"
             native_language:
               type: string
               minLength: 2
               maxLength: 5
-              example: "de"
-              description: "User's native language (used as source text language)"
+              example: "it"
+              description: "User's native language (used as source language)"
             translations:
               type: object
               description: >
-                Dictionary containing translations for all target languages.  
-                The number of entries **must exactly match** the user's registered target languages.  
-                Each key is a target language code (e.g., 'fr', 'nl', 'pl'), and each value is the user's translation.
-              additionalProperties:
-                type: string
-              example:
-                fr: "Ceci est un exemple."
-                nl: "Dit is een voorbeeld."
-                pl: "To jest przykład."
+                Object containing the user's translations for all target languages.  
+                Must include a nested key `translations` with a list of dictionaries —  
+                one dictionary per target language code and its translation.
+              properties:
+                translations:
+                  type: array
+                  description: "List of translation objects per target language"
+                  items:
+                    type: object
+                    additionalProperties:
+                      type: string
+                  example:
+                    - de: "Ich spiele am PC"
+                    - nl: "Ik speel op de pc"
+                    - pl: "Gram na komputerze"
           required:
             - sentence_id
             - user_id
             - native_language
             - translations
           example:
-            sentence_id: 12
-            user_id: 5
-            native_language: "de"
+            sentence_id: 3
+            user_id: 2
+            native_language: "it"
             translations:
-              fr: "Ceci est un exemple."
-              nl: "Dit is een voorbeeld."
-              pl: "To jest przykład."
+              translations:
+                - de: "Ich spiele am PC"
+                - nl: "Ik speel op de pc"
+                - pl: "Gram na komputerze"
 
     responses:
       200:
@@ -904,31 +960,72 @@ def evaluate_sentence():
             success:
               type: boolean
               example: true
+              description: "Indicates whether evaluation was successful"
             overall_score:
               type: integer
               example: 87
-              description: "Average score across all translations (0–100)"
+              description: "Overall average score across all target languages (0–100)"
             language_scores:
               type: object
               example:
-                fr: 90
+                de: 90
                 nl: 80
-                pl: 90
+                pl: 88
+              description: "Individual language scores (0–100) per translation"
             explanations:
               type: object
               example:
-                fr: "Good sentence structure, minor grammar error."
-                nl: "Word choice slightly off, otherwise correct."
-                pl: "Perfect translation."
+                de: "Good structure, minor grammar issues."
+                nl: "Correct, slight lexical error."
+                pl: "Excellent translation."
+              description: "Short feedback message per target language"
+            sentence:
+              type: object
+              properties:
+                id:
+                  type: integer
+                  example: 3
+                score:
+                  type: integer
+                  example: 87
+                review_count:
+                  type: integer
+                  example: 4
+                next_review:
+                  type: string
+                  example: "2025-10-10T12:00:00"
+              description: "Updated sentence progress metadata"
             message:
               type: string
               example: "Evaluation completed and score updated."
+              description: "Human-readable summary of the result"
       400:
-        description: Missing or invalid input data
+        description: Missing or invalid input data (e.g., missing required fields or mismatched translation count)
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "Missing required fields"
       404:
-        description: Sentence or user not found
+        description: User or sentence not found
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "User or sentence not found"
       500:
         description: Internal server error
+        schema:
+          type: object
+          properties:
+            error:
+              type: string
+              example: "Server error"
+            details:
+              type: string
+              example: "Traceback or detailed exception info"
     """
     try:
         data = request.get_json()
